@@ -2,9 +2,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import pandas as pd
 import re
+import numpy as np
 
-from sklearn.tree import DecisionTreeClassifier, export_text
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import LabelEncoder
+from sklearn.tree import _tree  # untuk konstanta TREE_UNDEFINED
 
 # =========================
 # GLOBALS
@@ -21,6 +23,14 @@ BINARY_FEATURES = [
     "kata_provokatif",
     "klaim_berlebihan"
 ]
+
+# Untuk menampilkan nama fitur yang lebih manusiawi pada output pohon
+HUMAN_FNAMES = {
+    "ada_data_bukti": "Ada data atau bukti",
+    "sumber_resmi": "Sumber resmi",
+    "kata_provokatif": "Bahasa provokatif",
+    "klaim_berlebihan": "Klaim berlebihan"
+}
 
 # =========================
 # FEATURE EXTRACTION (from title text)
@@ -48,7 +58,7 @@ def extract_features(text):
     # kata yang terkesan provokatif / emosional
     provokatif_words = [
         "viral", "heboh", "menghebohkan", "skandal", "mengancam",
-        "bahaya", "mengguncang", "menghebohkan", "rusak", "mencekam",
+        "bahaya", "mengguncang", "rusak", "mencekam",
         "mengejutkan", "bohong"
     ]
 
@@ -123,21 +133,95 @@ def normalize_boolean_like_columns(df, cols):
     df2 = df.copy()
     for c in cols:
         if c in df2.columns:
-            # coba mapping berbasis string, jika numeric tetap
             series = df2[c]
             if series.dtype == object:
-                # lower and strip
                 mapped = series.astype(str).str.strip().str.lower().map(mapping)
-                # jika mapping menghasilkan banyak NaN, jangan paksa; biarkan dan nantinya akan error
                 df2[c] = mapped
             else:
-                # numeric-ish; tetap coba cast
                 try:
                     df2[c] = series.astype(int)
                 except Exception:
-                    # fallback: attempt mapping text representation
                     df2[c] = series.astype(str).str.strip().str.lower().map(mapping)
     return df2
+
+# =========================
+# HELPERS: readable tree & feature importances
+# =========================
+def build_readable_tree(clf, feature_names, class_names, prefer_yes_first=True):
+    """
+    Menghasilkan string tree yang mudah dibaca, mis:
+    ROOT: Ada data atau bukti?
+    ├── Ya
+    │   └── LEAF: Fakta
+    ...
+    - clf: DecisionTreeClassifier terlatih
+    - feature_names: list nama fitur yang dipakai (urutan sama seperti training)
+    - class_names: array label asli (LabelEncoder.classes_)
+    - prefer_yes_first: jika True, tampilkan cabang 'Ya' (value 1) dulu untuk fitur biner
+    """
+    tree = clf.tree_
+    indent_unit = "    "
+
+    def is_binary_feature(node):
+        # heuristik: threshold sekitar 0.5 menandakan binary 0/1 split
+        thr = tree.threshold[node]
+        return thr <= 0.5 + 1e-9 and thr >= 0.5 - 1e-9
+
+    def node_label_from_class(node):
+        vals = tree.value[node][0]
+        idx = int(np.argmax(vals))
+        return class_names[idx].title()
+
+    def recurse(node, depth=0):
+        indent = indent_unit * depth
+        if tree.feature[node] == _tree.TREE_UNDEFINED:
+            # leaf
+            label = node_label_from_class(node)
+            return f"{indent}LEAF: {label}\n"
+        # internal node
+        fname = feature_names[tree.feature[node]]
+        human_name = HUMAN_FNAMES.get(fname, fname.replace("_", " ").title())
+        out = f"{indent}{human_name}?\n"
+
+        left = tree.children_left[node]
+        right = tree.children_right[node]
+
+        if is_binary_feature(node) and prefer_yes_first:
+            # print 'Ya' (right child) first for readability
+            out += f"{indent}├── Ya\n"
+            out += recurse(right, depth + 1)
+            out += f"{indent}└── Tidak\n"
+            out += recurse(left, depth + 1)
+        else:
+            thr = tree.threshold[node]
+            out += f"{indent}├── {human_name} <= {thr:.2f}\n"
+            out += recurse(left, depth + 1)
+            out += f"{indent}└── {human_name} > {thr:.2f}\n"
+            out += recurse(right, depth + 1)
+        return out
+
+    # Build top line (root)
+    if tree.feature[0] != _tree.TREE_UNDEFINED:
+        root_name = feature_names[tree.feature[0]]
+        root_human = HUMAN_FNAMES.get(root_name, root_name.replace("_", " ").title())
+        tree_str = f"ROOT: {root_human}?\n\n"
+    else:
+        tree_str = "ROOT: (leaf)\n\n"
+    tree_str += recurse(0, depth=0)
+    return tree_str
+
+def format_feature_importances(clf, feature_names):
+    imps = clf.feature_importances_
+    if imps is None or float(imps.sum()) == 0.0:
+        return "Feature importances: not available\n"
+    pairs = list(zip(feature_names, imps))
+    pairs_sorted = sorted(pairs, key=lambda x: x[1], reverse=True)
+    lines = []
+    for name, imp in pairs_sorted:
+        human = HUMAN_FNAMES.get(name, name.replace("_", " ").title())
+        pct = round(float(imp) * 100, 1)
+        lines.append(f"- {human} ({pct}%)")
+    return "Feature Importances:\n" + "\n".join(lines) + "\n"
 
 # =========================
 # TRAIN MODEL (extract features from title if needed)
@@ -184,14 +268,17 @@ def train_model():
     model = DecisionTreeClassifier(criterion="entropy", random_state=42, min_samples_leaf=2)
     model.fit(X, y_encoded)
 
-    # display tree rules and feature importances
-    tree_rules = export_text(model, feature_names=feature_names)
-    tree_text.delete("1.0", tk.END)
-    tree_text.insert(tk.END, "=== Decision Tree Rules ===\n\n")
-    tree_text.insert(tk.END, tree_rules)
-    tree_text.insert(tk.END, "\n=== Feature Importances ===\n")
-    for n, imp in zip(feature_names, model.feature_importances_):
-        tree_text.insert(tk.END, f"- {n}: {imp:.4f}\n")
+    # Build readable tree and formatted feature importances
+    readable = build_readable_tree(model, feature_names, label_encoder.classes_, prefer_yes_first=True)
+    fi_text = format_feature_importances(model, feature_names)
+
+    # tree_text.delete("1.0", tk.END)
+    # tree_text.insert(tk.END, "=== Decision Tree (versi ramah pengguna) ===\n\n")
+    # tree_text.insert(tk.END, readable)
+    tree_text.insert(tk.END, "\n=== Interpretasi Feature Importances ===\n")
+    tree_text.insert(tk.END, fi_text)
+    # Nilai ini menunjukkan seberapa besar setiap atribut memengaruhi keputusan model dalam membedakan berita fakta dan hoaks. 
+    # Semakin besar persentasenya, semakin sering atribut tersebut digunakan dalam proses pengambilan keputusan.”
 
     messagebox.showinfo("Info", "Model berhasil dilatih (fitur: " + ", ".join(feature_names) + ")")
 
@@ -227,7 +314,7 @@ def predict():
     explanation_text.delete("1.0", tk.END)
     explanation_text.insert(tk.END, "Fitur hasil ekstraksi dari judul:\n")
     for k in feature_names:
-        explanation_text.insert(tk.END, f"- {k}: {int(X_input.iloc[0][k])}\n")
+        explanation_text.insert(tk.END, f"- {HUMAN_FNAMES.get(k,k)}: {int(X_input.iloc[0][k])}\n")
 
     # optional context check (MBG)
     if "mbg" not in text.lower() and "makan bergizi" not in text.lower():
@@ -265,7 +352,7 @@ tk.Label(root, text="Fitur Ekstraksi / Keterangan:", font=("Arial", 10, "bold"))
 explanation_text = tk.Text(root, height=6)
 explanation_text.pack(fill=tk.X, padx=10, pady=6)
 
-tk.Label(root, text="Struktur Decision Tree (aturan):", font=("Arial", 10, "bold")).pack(anchor="w", padx=10)
+tk.Label(root, text="Kontribusi Atribut dalam Keputusan Model", font=("Arial", 10, "bold")).pack(anchor="w", padx=10)
 tree_text = tk.Text(root, height=18)
 tree_text.pack(fill=tk.BOTH, padx=10, pady=6, expand=True)
 

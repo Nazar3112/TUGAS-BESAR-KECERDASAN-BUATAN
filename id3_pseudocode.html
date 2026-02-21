@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Pseudocode ID3 - Klasifikasi Hoaks MBG</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f4f6f9;
+            line-height: 1.6;
+        }
+        h1, h2, h3 {
+            color: #1f3c88;
+        }
+        .box {
+            background: white;
+            padding: 20px;
+            margin-bottom: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        pre {
+            background: #272822;
+            color: #f8f8f2;
+            padding: 15px;
+            overflow-x: auto;
+            border-radius: 6px;
+        }
+        .explain {
+            background: #e8f0fe;
+            padding: 15px;
+            border-left: 5px solid #1f3c88;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Algoritma Aplikasi Klasifikasi Hoaks MBG Menggunakan ID3</h1>
+
+<div class="box">
+<h2>1. Struktur Program Utama</h2>
+<pre>
+START PROGRAM
+
+Inisialisasi:
+    dataset ← kosong
+    model ← kosong
+    label_encoder ← kosong
+    feature_names ← kosong
+
+Tampilkan GUI:
+    - Tombol Load Dataset
+    - Tombol Train Model
+    - Input Judul
+    - Tombol Prediksi
+
+Menunggu interaksi user
+
+END PROGRAM
+</pre>
+</div>
+
+<div class="box">
+<h2>2. Load Dataset</h2>
+<pre>
+FUNCTION load_dataset()
+
+    Pilih file (.csv / .xlsx)
+
+    IF file tidak dipilih → RETURN
+
+    Baca file ke dalam dataset
+
+    IF tidak ada kolom "label"
+        Tampilkan error
+        RETURN
+
+    IF tidak ada kolom fitur DAN tidak ada "judul_post"
+        Tampilkan error
+        RETURN
+
+    Simpan dataset
+    Tampilkan pesan berhasil
+
+END FUNCTION
+</pre>
+</div>
+
+<div class="box">
+<h2>3. Train Model (Proses ID3)</h2>
+<pre>
+FUNCTION train_model()
+
+    IF dataset kosong → RETURN
+
+    Ambil fitur (X) dan label (y)
+
+    Encode label menjadi angka
+
+    Bangun Decision Tree dengan kriteria ENTROPY
+
+    Proses ID3:
+        Hitung entropy awal
+        Untuk setiap atribut:
+            Hitung entropy tiap cabang
+            Hitung Information Gain
+        Pilih atribut dengan IG terbesar sebagai root
+        Ulangi proses pada setiap cabang
+        Bentuk leaf node (Fakta / Hoaks)
+
+    Simpan model
+    Tampilkan feature importance
+
+END FUNCTION
+</pre>
+</div>
+
+<div class="box">
+<h2>4. Prediksi Judul Baru</h2>
+<pre>
+FUNCTION predict()
+
+    IF model belum dilatih → RETURN
+
+    Ambil teks judul dari user
+
+    Ekstraksi fitur:
+        - ada_data_bukti
+        - sumber_resmi
+        - kata_provokatif
+        - klaim_berlebihan
+
+    Bentuk data input sesuai urutan fitur
+
+    Lakukan prediksi dengan model
+
+    Ambil probabilitas (confidence)
+
+    Tampilkan:
+        - Hasil (Fakta / Hoaks)
+        - Confidence
+        - Fitur yang terdeteksi
+
+END FUNCTION
+</pre>
+</div>
+
+<div class="box">
+<h2>5. Pseudocode Konsep Matematis ID3</h2>
+<pre>
+FUNCTION ID3(dataset, atribut)
+
+    IF semua data satu label
+        RETURN leaf(label)
+
+    IF atribut kosong
+        RETURN leaf(label mayoritas)
+
+    Hitung entropy dataset
+
+    Untuk setiap atribut:
+        Hitung Information Gain
+
+    Pilih atribut dengan IG terbesar
+
+    Untuk setiap nilai atribut:
+        Buat cabang
+        Panggil ID3(subset, atribut tersisa)
+
+    RETURN node
+END FUNCTION
+</pre>
+</div>
+
+<div class="box explain">
+<h2>Penjelasan Dengan Bahasa Sederhana</h2>
+
+<p><strong>1. Load Dataset</strong><br>
+Aplikasi membaca data berita yang sudah diberi label Fakta atau Hoaks.</p>
+
+<p><strong>2. Train Model</strong><br>
+Program menghitung tingkat ketidakpastian (entropy). 
+Semakin tidak jelas perbedaannya, entropy tinggi.</p>
+
+<p>Lalu program mencoba setiap atribut untuk melihat mana yang paling membantu memisahkan Fakta dan Hoaks. 
+Pengukuran ini disebut Information Gain.</p>
+
+<p>Atribut dengan Information Gain terbesar dijadikan pertanyaan pertama (root pohon).</p>
+
+<p>Proses ini diulang sampai semua data terpisah dengan jelas.</p>
+
+<p><strong>3. Prediksi</strong><br>
+Ketika user memasukkan judul baru, sistem:
+<ul>
+<li>Mengecek apakah ada data/bukti</li>
+<li>Mengecek apakah ada sumber resmi</li>
+<li>Mengecek kata provokatif</li>
+<li>Mengecek klaim berlebihan</li>
+</ul>
+Lalu pohon keputusan menentukan hasil akhirnya.</p>
+
+<p><strong>Confidence</strong> menunjukkan seberapa yakin model terhadap hasil tersebut.</p>
+
+</div>
+
+</body>
+</html>
